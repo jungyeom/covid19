@@ -42,10 +42,31 @@ cty <- counties(cb = TRUE, resolution = "20m")
 url <- 'https://static.usafacts.org/public/data/covid-19/covid_confirmed_usafacts.csv'
 cv_us <- read_csv(url(url))
 
+today <- as.Date(Sys.Date())
+string_today <- paste(str_sub(today,6,7), str_sub(today,9,10), year(today), sep = '-')
+
+
+url <- paste0('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_daily_reports/', string_today, '.csv')
+cv_us_today <- read_csv(url(url))
+
 cv_us <- cv_us %>%
   mutate(countyFIPS = str_pad(countyFIPS,5,'left', '0')) %>%
   distinct(countyFIPS, .keep_all = T) %>% # Distinct county codes
   mutate(countyFIPS = ifelse(countyFIPS == '46031', '45031', countyFIPS)) # Darlington county FIPS code fixed
+
+cv_us_today <- cv_us_today %>%
+  rename(countyFIPS = FIPS,
+         today = Confirmed,
+         last_update = Last_Update) %>%
+  select(countyFIPS, today, last_update) %>%
+  distinct(countyFIPS, .keep_all = T)
+  
+## combine historical and today
+
+cv_us <- cv_us %>%
+  left_join(cv_us_today, by = 'countyFIPS')
+
+
 
 cty_data <- cty@data
 cty_data <- cty_data %>%
