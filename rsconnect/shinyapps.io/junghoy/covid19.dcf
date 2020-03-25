@@ -1,0 +1,10 @@
+name: covid19
+title:
+username:
+account: junghoy
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1976168
+bundleId: 2918415
+url: https://junghoy.shinyapps.io/covid19/
+when: 1585061298.69832
