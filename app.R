@@ -11,6 +11,8 @@ library(leaflet)
 library(leaflet.extras)
 library(tigris)
 library(RColorBrewer)
+library(DT)
+library(tableHTML)
 
 # setwd('/home/jungho/deep_learning/covid19/')
 
@@ -18,8 +20,15 @@ library(RColorBrewer)
 
 cty <- counties(cb = TRUE, resolution = "20m")
 
-url <- 'https://static.usafacts.org/public/data/covid-19/covid_confirmed_usafacts.csv'
-cv_us <- read_csv(url(url))
+url_confirm <- 'https://static.usafacts.org/public/data/covid-19/covid_confirmed_usafacts.csv'
+cv_us_confirm <- read_csv(url(url_confirm))
+url_deaths <- 'https://static.usafacts.org/public/data/covid-19/covid_deaths_usafacts.csv'
+cv_us_deaths <- read_csv(url(url_deaths))
+
+cv_us_confirm$type <- "CONFIRM"
+cv_us_deaths$type <- "DEATH"
+
+cv_us <- bind_rows(cv_us_confirm, cv_us_deaths)
 
 today <- as.Date(Sys.Date())
 string_today <- paste(str_sub(today,6,7), str_sub(today,9,10), year(today), sep = '-')
@@ -30,23 +39,25 @@ cv_us_today <- tryCatch(read_csv(url(url)), warn = F,
 
 cv_us <- cv_us %>%
   mutate(countyFIPS = str_pad(countyFIPS,5,'left', '0')) %>%
-  distinct(countyFIPS, .keep_all = T) %>% # Distinct county codes
+  distinct(countyFIPS, type, .keep_all = T) %>% # Distinct county codes
   mutate(countyFIPS = ifelse(countyFIPS == '46031', '45031', countyFIPS)) # Darlington county FIPS code fixed
 
 if(!is.null(cv_us_today)){
   cv_us_today <- cv_us_today %>%
     rename(countyFIPS = FIPS,
-           today = Confirmed,
+           CONFIRM = Confirmed,
+           DEATH = Deaths,
            last_update = Last_Update) %>%
-    select(countyFIPS, today, last_update) %>%
-    distinct(countyFIPS, .keep_all = T)
+    select(countyFIPS, last_update, CONFIRM, DEATH) %>%
+    distinct(countyFIPS, .keep_all = T) %>%
+    gather(type, value, 3:4)
 }
   
 ## combine historical and today
 
 if(!is.null(cv_us_today)){
   cv_us_today <- cv_us_today %>%
-  left_join(cv_us, by = 'countyFIPS')
+    left_join(cv_us, by = c('countyFIPS', 'type'))
 } else{
   cv_us_today <- cv_us
 }
@@ -54,24 +65,41 @@ if(!is.null(cv_us_today)){
 cty_data <- cty@data
 cty_data <- cty_data %>%
   mutate(countyFIPS = paste0(STATEFP, COUNTYFP)) %>%
-  left_join(cv_us_today, by = c('countyFIPS' = 'countyFIPS')) %>%
+  left_join(filter(cv_us_today, type == 'CONFIRM'), by = c('countyFIPS' = 'countyFIPS')) %>%
   mutate_if(is.numeric, function(x) replace_na(x, 0)) # Replace all NA to zero
 
 cty_data <- cty_data %>%
-  select(1:10,12:ncol(cty_data),11)
+  select(1:12,14:ncol(cty_data),13)
 
-col_index <- grep('^[0-9]|^today',names(cty_data))
+col_index <- grep('^[0-9]|^value',names(cty_data))
 
 cty_data_gather <- cty_data %>%
   tidyr::gather(date,value,col_index) 
 
 cty_data_gather <- cty_data_gather %>%
-  mutate(date = ifelse(date == 'today', paste(month(today), day(today), year(today), sep = '/'), date))
+  mutate(date = ifelse(date == 'value', paste(month(today), day(today), year(today), sep = '/'), date))
 
 cty_data_gather <- cty_data_gather %>%
   mutate(date = as.Date(date, format = '%m/%d/%Y'))
 
 cty@data <- cty_data
+
+# Death 
+
+cv_death_gather <- cv_us_today %>%
+  select(1:3,5:ncol(cv_us_today),4)
+
+col_index <- grep('^[0-9]|^value',names(cv_death_gather))
+
+cv_death_gather <- cv_death_gather %>%
+  filter(type == 'DEATH') %>%
+  tidyr::gather(date,value,col_index) 
+
+cv_death_gather <- cv_death_gather %>%
+  mutate(date = ifelse(date == 'value', paste(month(today), day(today), year(today), sep = '/'), date))
+
+cv_death_gather <- cv_death_gather %>%
+  mutate(date = as.Date(date, format = '%m/%d/%Y'))
 
 # Palette for color coding
 bins <- c(-Inf, 0, 10, 100, 500, Inf) # create color bins
@@ -95,26 +123,32 @@ cty_data_gather <- cty_data_gather %>%
 
 # Load worldwide data ------------------------------------------------
 
-url <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv'
-covid <- read_csv(url(url))
+url_confirm <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv'
+url_death <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv'
+covid_confirm <- read_csv(url(url_confirm))
+covid_death <- read_csv(url(url_death))
+
+covid_confirm$type = 'CONFIRM'
+covid_death$type = 'DEATH'
+
+covid <- bind_rows(covid_confirm, covid_death)
+
+col_index <- grep('^[0-9]', names(covid))
+names(covid)[col_index] <- paste0(names(covid)[col_index], '20')
 
 covid_by_ctry <- covid %>%
-  group_by(`Country/Region`) %>%
+  group_by(`Country/Region`, type) %>%
   summarise_if(is.numeric, sum, na.rm = T) %>%
   rename(country = `Country/Region`)
 
-covid_by_ctry <- covid_by_ctry[covid_by_ctry[, ncol(covid_by_ctry)] > 200,]
+# identify countries with more than 200 confirmed cases
+ctry_with_200plus <- covid_by_ctry %>% dplyr::filter(type == 'CONFIRM')
+ctry_with_200plus <- ctry_with_200plus[ctry_with_200plus[, ncol(ctry_with_200plus)] > 200, ]
+ctry_with_200plus <- ctry_with_200plus$country
 
 covid_tidy <- covid_by_ctry %>%
-  tidyr::gather(date,value,4:ncol(covid_by_ctry))
-
-# Data frame for COVID19 days since 100
-
-covid_tidy_days_since_100 <- covid_tidy %>%
-  filter(value > 100) %>%
-  group_by(country) %>%
-  mutate(days = 1) %>%
-  mutate(days_since_100 = cumsum(days))
+  filter(country %in% ctry_with_200plus) %>%
+  tidyr::gather(date,value,5:ncol(covid_by_ctry))
 
 # Data frame for COVID19 today
 
@@ -156,7 +190,7 @@ country_cases_plot = function(cv_cases, type = 'cumulative') {
     titlefont = f
   )
   y <- list(
-    title = "Cumulative Infected Cases",
+    title = "Cases",
     titlefont = f
   )
   
@@ -238,7 +272,19 @@ ui <- navbarPage(theme = shinytheme("darkly"), collapsible = TRUE,
                                             top = 80, left = 20, width = 350, fixed=TRUE,
                                             draggable = TRUE, height = 'auto',
                                             h3(textOutput("reactive_case_count"), align = "center", style="color:#006d2c"),
-                                            h5(textOutput("reactive_last_update"), align = "center", style="color:#006d2c"),
+                                            h3(textOutput("reactive_death_count"), align = "center", style="color:#FF0000"),
+                                            h5(tags$i(textOutput("reactive_last_update")), align = "center", style="color:#000000")
+                              ),
+                              absolutePanel(id = "controls", class = "panel panel-default",
+                                            top = 480, left = 20, width = 350, fixed=TRUE,
+                                            draggable = TRUE, height = 'auto',
+                                            h4('List of top counties', align = 'left', style="color:#000000"),
+                                            dataTableOutput("reactive_top10_county")
+
+                              ),
+                              absolutePanel(id = "controls", class = "panel panel-default",
+                                            top = 80, right = 20, width = 350, fixed=TRUE,
+                                            draggable = TRUE, height = 'auto',
                                             h5('Select date for mapping', style='color:#000000'),
                                             sliderInput("plot_date",
                                                         label = 'Select date for mapping',
@@ -252,8 +298,10 @@ ui <- navbarPage(theme = shinytheme("darkly"), collapsible = TRUE,
                                                         choices = sort(unique(cty_data_gather$State)),
                                                         options = list(`actions-box` = TRUE),
                                                         selected = 'NY',
-                                                        multiple = TRUE),
-                              ),
+                                                        multiple = TRUE)
+                                            
+                              )
+                              
                           )
                  ),
                  
@@ -263,19 +311,22 @@ ui <- navbarPage(theme = shinytheme("darkly"), collapsible = TRUE,
                             sidebarPanel(
                               
                               pickerInput("country_select", "Country:",   
-                                          choices = cv_today$country, 
+                                          choices = cv_today$country[cv_today$type == 'CONFIRM'], 
                                           options = list(`actions-box` = TRUE),
                                           selected = cv_today$country,
                                           multiple = TRUE), 
-                              "Select outcome and countries from drop-down menues to update plots."
+                              "Select outcome and countries from drop-down menues to update plots.",
+                              radioButtons("type2", h3("Confirmed or Death"),
+                                           choices = list("Confirmed" = 'CONFIRM', "Deaths" = 'DEATH'), selected = 'CONFIRM')
                             ),
                             
                             mainPanel(
                               tabsetPanel(
                                 tabPanel("New", plotlyOutput("country_plot", height = '800px')),
                                 tabPanel("Cumulative", plotlyOutput("country_plot_cumulative", height = '800px')),
-                                tabPanel("Cumulative (log10)", plotlyOutput("country_plot_cumulative_log", height = '800px')),
-                                tabPanel("Days sine 100", plotlyOutput("country_plot_days_since_100", height = '800px'))
+                                tabPanel("Cumulative (log(e))", plotlyOutput("country_plot_cumulative_log", height = '800px')),
+                                tabPanel("Days since 100 (log(e))", plotlyOutput("country_plot_days_since_100", height = '800px'))
+                                # tabPanel("table", tableOutput("reactive_top10_county"))
                               )
                             )
                           )
@@ -285,8 +336,8 @@ ui <- navbarPage(theme = shinytheme("darkly"), collapsible = TRUE,
                  tabPanel("About this site",
                           tags$div(
                             tags$h4("Last update"),
-                            h6(paste0('2020-03-22')),
-                            "This site is updated once daily. At this time of rapid escalation of the COVID-19 pandemic, the following resources offer the latest numbers of known cases:",tags$br(),
+                            h6(paste0(today)),
+                            "This site",tags$br(),
                           )
                  )
 )
@@ -316,6 +367,36 @@ server = function(input, output) {
   output$reactive_case_count <- renderText({
     paste0(prettyNum(sum(reactive_covid()@data$INFECTED), big.mark=","), " cases")
   })
+  
+  # Death in Selected State
+  output$reactive_death_count <- renderText({
+    df <- cv_death_gather %>%
+      filter(State %in% input$state_select) %>%
+      filter(date == input$plot_date) %>%
+      summarise(death = sum(value, na.rm = T))
+    
+    paste0(prettyNum(df$death, big.mark=","), " deaths")
+  })
+  
+  # Top 10 counties 
+  output$reactive_top10_county <- renderDataTable({
+    confirm <- cty_data_gather %>% filter(date == input$plot_date) %>% filter(State %in% input$state_select)
+    death <- cv_death_gather %>% filter(date == input$plot_date) %>% filter(State %in% input$state_select)
+    
+    confirm <- confirm %>% select(countyFIPS, NAME, value) %>% rename(confirmed = value)
+    death <- death %>% select(countyFIPS, value) %>% rename(deaths = value)
+    
+    df <- confirm %>% left_join(death, by = 'countyFIPS') %>% arrange(-confirmed) %>% select(-countyFIPS) %>% 
+      rename(County = NAME, Confirmed = confirmed, Deaths = deaths) %>%
+      mutate(Deaths = ifelse(is.na(Deaths), 0, Deaths)) %>%
+      mutate(Confirmed = as.integer(Confirmed), Deaths = as.integer(Deaths))
+    df
+  },
+  options = list(
+    autoWidth = TRUE,
+    columnDefs = list(list(width = '100px', targets = "_all")),
+    lengthChange = FALSE
+  ), rownames = F)
   
   # Last Update
   output$reactive_last_update <- renderText({
@@ -355,12 +436,24 @@ server = function(input, output) {
   # covid by country
   
   covid_by_ctry = reactive({
-    covid_tidy %>% filter(country %in% input$country_select)
+    covid_tidy %>% 
+      filter(type == input$type2) %>%
+      filter(country %in% input$country_select)
   })
   
   # covid US days since 100
   # reactive 
   reactive_annot = reactive({
+    
+    # Data frame for COVID19 days since 100
+    
+    covid_tidy_days_since_100 <- covid_tidy %>%
+      filter(type == input$type2) %>%
+      filter(value > 100) %>%
+      group_by(country) %>%
+      mutate(days = 1) %>%
+      mutate(days_since_100 = cumsum(days))
+    
     covid_tidy_days_since_100 %>%
       filter(country %in% input$country_select) %>%
       group_by(country) %>%
@@ -369,10 +462,14 @@ server = function(input, output) {
   
   # reactive 
   reactive_days_100 = reactive({
-    covid_tidy_days_since_100 %>%
+    covid_tidy_days_since_100 <- covid_tidy %>%
+      filter(type == input$type2) %>%
+      filter(value > 100) %>%
+      group_by(country) %>%
+      mutate(days = 1) %>%
+      mutate(days_since_100 = cumsum(days)) %>%
       filter(country %in% input$country_select)
   })
-  
   
   # Plotly New/Cumlative/Cumulative Log Cases by Country
   
@@ -402,9 +499,6 @@ server = function(input, output) {
 shinyApp(ui, server)
 
 library(rsconnect)
-
-
-
 deployApp('/Users/junghoyeom/Desktop/projects/covid19/')
 
 
