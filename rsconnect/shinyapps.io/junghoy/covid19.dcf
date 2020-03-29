@@ -5,6 +5,6 @@ account: junghoy
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 1976168
-bundleId: 2918415
+bundleId: 2929015
 url: https://junghoy.shinyapps.io/covid19/
-when: 1585061298.69832
+when: 1585253396.35412

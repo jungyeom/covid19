@@ -2,7 +2,6 @@
 
 library(shiny)
 library(shinyWidgets)
-library(shinydashboard)
 library(shinythemes)
 library(tidyverse)
 library(lubridate)
@@ -12,9 +11,6 @@ library(leaflet.extras)
 library(tigris)
 library(RColorBrewer)
 library(DT)
-library(tableHTML)
-
-# setwd('/home/jungho/deep_learning/covid19/')
 
 # Load data polygons -----------------------------------------------
 
@@ -25,17 +21,25 @@ cv_us_confirm <- read_csv(url(url_confirm))
 url_deaths <- 'https://static.usafacts.org/public/data/covid-19/covid_deaths_usafacts.csv'
 cv_us_deaths <- read_csv(url(url_deaths))
 
+names(cv_us_confirm)[5:ncol(cv_us_confirm)] <- paste0(names(cv_us_confirm)[5:ncol(cv_us_confirm)], '20')
+names(cv_us_deaths)[5:ncol(cv_us_deaths)] <- paste0(names(cv_us_deaths)[5:ncol(cv_us_deaths)], '20')
+
 cv_us_confirm$type <- "CONFIRM"
 cv_us_deaths$type <- "DEATH"
 
+# cv_us_confirm <- cv_us_confirm %>% select(-(ncol(cv_us_confirm)-1))
+names(cv_us_confirm) <- names(cv_us_deaths)
+
 cv_us <- bind_rows(cv_us_confirm, cv_us_deaths)
+# cv_us <- cv_us %>% select(-(ncol(cv_us)-1))
 
 today <- as.Date(Sys.Date())
 string_today <- paste(str_sub(today,6,7), str_sub(today,9,10), year(today), sep = '-')
 
 url <- paste0('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_daily_reports/', string_today, '.csv')
-cv_us_today <- tryCatch(read_csv(url(url)), warn = F,
-                        error = function(e) NULL)
+cv_us_today <- NULL
+tryCatch(cv_us_today <- read_csv(url(url)), 
+         error = function(e) "error")
 
 cv_us <- cv_us %>%
   mutate(countyFIPS = str_pad(countyFIPS,5,'left', '0')) %>%
@@ -52,7 +56,7 @@ if(!is.null(cv_us_today)){
     distinct(countyFIPS, .keep_all = T) %>%
     gather(type, value, 3:4)
 }
-  
+
 ## combine historical and today
 
 if(!is.null(cv_us_today)){
@@ -61,7 +65,7 @@ if(!is.null(cv_us_today)){
 } else{
   cv_us_today <- cv_us
 }
-  
+
 cty_data <- cty@data
 cty_data <- cty_data %>%
   mutate(countyFIPS = paste0(STATEFP, COUNTYFP)) %>%
@@ -74,7 +78,7 @@ cty_data <- cty_data %>%
 col_index <- grep('^[0-9]|^value',names(cty_data))
 
 cty_data_gather <- cty_data %>%
-  tidyr::gather(date,value,col_index) 
+  tidyr::gather(date,value,all_of(col_index))
 
 cty_data_gather <- cty_data_gather %>%
   mutate(date = ifelse(date == 'value', paste(month(today), day(today), year(today), sep = '/'), date))
@@ -121,6 +125,18 @@ cty_data_gather <- cty_data_gather %>%
   rename(State = State.y) %>%
   select(-State.x)
 
+# Collect state level data
+
+state_coord <- read_csv('state_coord.csv')
+
+state_data_gather <- cty_data_gather %>%
+  group_by(State, stateFIPS, date, type) %>%
+  summarise(value = sum(value))
+  
+state_data_gather <- state_data_gather %>%
+  left_join(select(state_coord,1:3), by = c('State' = 'state'))
+
+
 # Load worldwide data ------------------------------------------------
 
 url_confirm <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv'
@@ -157,24 +173,6 @@ cv_today <- covid_tidy %>%
   filter(date == max(date)) %>%
   arrange(-value)
 
-# annotation_df <- covid_tidy_days_since_100 %>%
-#   group_by(country) %>%
-#   filter(days_since_100 == max(days_since_100))
-# 
-# covid_tidy_days_since_100 %>%
-#   group_by(country) %>%
-#   plot_ly(x = ~days_since_100) %>%
-#   add_lines(y = ~log(value), color = ~factor(country)) %>%
-#   layout(xaxis = x, yaxis = y) %>%
-#   add_annotations(x = annotation_df$days_since_100,
-#                   y = log(annotation_df$value),
-#                   color = ~factor(annotation_df$country),
-#                   text = annotation_df$country,
-#                   showarrow = F,
-#                   ax = 30,
-#                   font = list(family = 'sans serif',
-#                               size = 14))
-  
 
 # Country Case plot function -----------------------------------------
 
@@ -498,8 +496,7 @@ server = function(input, output) {
 
 shinyApp(ui, server)
 
-library(rsconnect)
-deployApp('/Users/junghoyeom/Desktop/projects/covid19/')
+
 
 
 
