@@ -1,7 +1,8 @@
 library(tidyverse)
 library(lubridate)
 library(tigris)
-
+library(RColorBrewer)
+library(leaflet)
 
 # Load data polygons -----------------------------------------------
 
@@ -12,7 +13,7 @@ cv_us_confirm <- read_csv(url(url_confirm))
 url_deaths <- 'https://static.usafacts.org/public/data/covid-19/covid_deaths_usafacts.csv'
 cv_us_deaths <- read_csv(url(url_deaths))
 
-cv_us_deaths <- cv_us_deaths %>% select(-ncol(cv_us_deaths))
+# cv_us_deaths <- cv_us_deaths %>% select(-ncol(cv_us_confirm))
 
 # names(cv_us_confirm)[5:ncol(cv_us_confirm)] <- paste0(names(cv_us_confirm)[5:ncol(cv_us_confirm)], '20')
 # names(cv_us_deaths)[5:ncol(cv_us_deaths)] <- paste0(names(cv_us_deaths)[5:ncol(cv_us_deaths)], '20')
@@ -125,7 +126,7 @@ cty_data_gather <- cty_data_gather %>%
 
 # Collect state level data
 
-state_coord <- read_csv('state_coord.csv')
+state_coord <- read_csv('data/state_coord.csv')
 
 state_gather <- cv_us_today %>%
   select(1:3,5:ncol(cv_us_today),4)
@@ -195,3 +196,4 @@ cv_today <- covid_tidy %>%
 save(state_gather, state_coord, us_gather, cty, cty_data_gather, cv_death_gather, cv_us_confirm, cv_us_deaths, 
      cv_us_today, cv_us, covid_tidy, cv_today, covid_by_ctry, ctry_with_200plus, covid, today, bins, pal,
      file = 'data/covid_data.RData')
+
